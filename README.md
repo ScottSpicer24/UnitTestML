@@ -1,2 +1,2 @@
-### CAP 640 Project
+### CAP 6640 Project
 ### Scott Spicer
