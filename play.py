@@ -50,17 +50,37 @@ def main(FLAGS):
  
 
 def human_eval(model, tokenizer, device):
-    print("datasets: Human Eval")
+    print("datasets: Human Eval") # 164 python programming problems
     data = load_dataset("openai_humaneval")
     print(data)
     
     example = data["test"][0] # only test in humaneval
-    print("\nExample Entry:")
-    print(f"Task ID: {example['task_id']}")
-    print(f"Prompt:\n{example['prompt']}")
-    print(f"Canonical Solution:\n{example['canonical_solution']}")
+    # print("\nExample Entry:")
+    # print(f"Task ID: {example['task_id']}")
+    # print(f"Prompt:\n{example['prompt']}")
+    # print(f"Canonical Solution:\n{example['canonical_solution']}")
     print(f"Test:\n{example['test']}")
-    print(f"Entry Point: {example['entry_point']}")
+    # print(f"Entry Point: {example['entry_point']}")
+
+    query = f'Below is a Canonical Solution to a python programming problem. I need to to create a function of assert statements to test the code for the given Canonical Solution. Canonical Solution code:\n {example['canonical_solution']}'
+    # Tokenize the query
+    inputs = tokenizer(query, return_tensors="pt")
+    print("inputs: ", inputs)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+
+    # Feed the tokens into the model. Saving the output.
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=2500,
+            do_sample=True,
+            temperature=0.7,
+            pad_token_id=tokenizer.eos_token_id
+        )
+
+    # Print the output
+    output_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    print("\nGenerated Test Code:\n", output_text)
 
 
 if __name__ == "__main__":
