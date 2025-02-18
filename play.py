@@ -7,6 +7,8 @@ import coverage
 from io import StringIO
 import tempfile
 import os
+import pytest
+import csv
 
 def main(FLAGS):
     # Device setup
@@ -35,11 +37,26 @@ def main(FLAGS):
         
         human_eval(model, tokenizer, device)
     else:
-        print("testing...")
+        print("Getting intital results")
         data = load_dataset("openai_humaneval")
-        example = data["test"][0] # only test in humaneval
-        formatted_code = format_code(example)
-        get_coverage(formatted_code, example['test'])
+        coverage_results = []
+        
+        # Iterate over the test examples
+        for idx, example in enumerate(data['test']):
+            formatted_code = format_code(example)
+            # Run coverage measurement on the formatted code
+            line_coverage = get_coverage(formatted_code)
+            # Use the provided task_id if available, else use the index
+            task_id = example.get("task_id", idx)
+            coverage_results.append({"task_id": task_id, "line_coverage": line_coverage})
+        
+        # Write the coverage results to a CSV file
+        csv_file = "coverage_results_no_model_baseline.csv"
+        with open(csv_file, mode="w", newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=["task_id", "line_coverage"])
+            writer.writeheader()
+            writer.writerows(coverage_results)
+        print(f"Coverage results written to {csv_file}")
 
     
     '''# Tokenize input
@@ -94,30 +111,28 @@ def human_eval(model, tokenizer, device):
     print("\nGenerated Test Code:\n", output_text)
 
 
-#********************************************************* TRY PYTEST *****************************************************
-def get_coverage(code, tests):
-    # Initialize the coverage object
-    print(code)
-    
+#Measures the coverage of the tests
+def get_coverage(code):
     # Create a temporary file
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".py") as temp_file:
         temp_file_name = temp_file.name
         temp_file.write(code)
 
     # Run coverage.py on the temporary file
-    cov = coverage.Coverage()
+    cov = coverage.Coverage(branch=True)
     cov.start()
-    exec(open(temp_file_name).read(), globals())
+    pytest.main([temp_file_name]) # Run pytest on the temp file 
+    # pytest.main(['test.py'])
     cov.stop()
 
-    # Generate the coverage report
-    print(cov.report())
+    # Capture the coverage report output in a StringIO object
+    report_output = StringIO()
+    total_coverage = cov.report(file=report_output) # line coverage
 
-    # Clean up: delete the temporary file
-    #os.remove(temp_file_name)
+    # Clean up the temporary file and return 
+    os.remove(temp_file_name)
+    return total_coverage # line coverage
 
-    # Return a dictionary containing the overall (branch) coverage percentage and the report text.
-    #return {"total_coverage": total_coverage, "report": report_str}
 
 def format_code(example):
     lines = example['prompt'].split('\n')
@@ -134,7 +149,9 @@ def format_code(example):
     
     base = example['canonical_solution'] 
 
-    test = example['test'] + '\n' + 'check(' + function + ')'
+    test_funct = 'def test_' + function  + '():' + '\n\t' + 'check(' + function + ')'
+    test = example['test'] + '\n' + test_funct
+    
     return header + base + test
 
 

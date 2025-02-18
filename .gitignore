@@ -1,2 +1,4 @@
 methods2test
 .coverage
+__pycache__
+.pytest_cache
