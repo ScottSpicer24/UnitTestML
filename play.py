@@ -3,6 +3,10 @@ import transformers
 import argparse
 import torch
 from datasets import load_dataset
+import coverage
+from io import StringIO
+import tempfile
+import os
 
 def main(FLAGS):
     # Device setup
@@ -15,20 +19,28 @@ def main(FLAGS):
     else:
         model_name = "meta-llama/Meta-Llama-3.1-8B"
 
-    print("model choosen: ", model_name)
- 
-    # Load tokenizer with padding setup
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token  # Fix for the warning
-
-    # Load model with GPU optimization
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype=torch.float16 if device.type == "cuda" else torch.float32
-    ).to(device)
+    if(FLAGS.model != 0):
+        print("model choosen: ", model_name)
     
-    human_eval(model, tokenizer, device)
+        # Load tokenizer with padding setup
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token  # Fix for the warning
+
+        # Load model with GPU optimization
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.float16 if device.type == "cuda" else torch.float32
+        ).to(device)
+        
+        human_eval(model, tokenizer, device)
+    else:
+        print("testing...")
+        data = load_dataset("openai_humaneval")
+        example = data["test"][0] # only test in humaneval
+        formatted_code = format_code(example)
+        get_coverage(formatted_code, example['test'])
+
     
     '''# Tokenize input
     inputs = tokenizer(input_query, return_tensors="pt").to(device)
@@ -52,7 +64,6 @@ def main(FLAGS):
 def human_eval(model, tokenizer, device):
     print("datasets: Human Eval") # 164 python programming problems
     data = load_dataset("openai_humaneval")
-    print(data)
     
     example = data["test"][0] # only test in humaneval
     # print("\nExample Entry:")
@@ -72,7 +83,7 @@ def human_eval(model, tokenizer, device):
     with torch.no_grad():
         outputs = model.generate(
             **inputs,
-            max_new_tokens=2500,
+            max_new_tokens=1000,
             do_sample=True,
             temperature=0.7,
             pad_token_id=tokenizer.eos_token_id
@@ -83,11 +94,55 @@ def human_eval(model, tokenizer, device):
     print("\nGenerated Test Code:\n", output_text)
 
 
+#********************************************************* TRY PYTEST *****************************************************
+def get_coverage(code, tests):
+    # Initialize the coverage object
+    print(code)
+    
+    # Create a temporary file
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".py") as temp_file:
+        temp_file_name = temp_file.name
+        temp_file.write(code)
+
+    # Run coverage.py on the temporary file
+    cov = coverage.Coverage()
+    cov.start()
+    exec(open(temp_file_name).read(), globals())
+    cov.stop()
+
+    # Generate the coverage report
+    print(cov.report())
+
+    # Clean up: delete the temporary file
+    #os.remove(temp_file_name)
+
+    # Return a dictionary containing the overall (branch) coverage percentage and the report text.
+    #return {"total_coverage": total_coverage, "report": report_str}
+
+def format_code(example):
+    lines = example['prompt'].split('\n')
+    header = ''
+    
+    for line in lines:
+        header += line
+        header += '\n'
+        if line.lstrip().startswith("def "):
+            # get function name
+            new_string = line.split('(')[0]
+            function = new_string[3:].lstrip()   
+            break
+    
+    base = example['canonical_solution'] 
+
+    test = example['test'] + '\n' + 'check(' + function + ')'
+    return header + base + test
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Model Query')
     
     parser.add_argument('--dataset', type=str,  help='Which dataset do you want to use ') # not needed anymore
-    parser.add_argument('--model', type=int, default=0, help='1 for DeepSeek-R1-Distill-Llama-8B, else  for Meta-Llama-3.1-8B')
+    parser.add_argument('--model', type=int, default=0, help='0 for None/Testing, 1 for DeepSeek-R1-Distill-Llama-8B, else for Meta-Llama-3.1-8B')
     
     FLAGS = parser.parse_args()
     main(FLAGS)
